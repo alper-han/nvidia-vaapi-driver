@@ -69,6 +69,14 @@ static void copyVP9PicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *pi
 }
 
 static GstVp9Parser *parser;
+
+static void __attribute__((destructor)) vp9_parser_cleanup(void) {
+    if (parser != NULL) {
+        gst_vp9_parser_free(parser);
+        parser = NULL;
+    }
+}
+
 static void parseExtraInfo(void *buf, uint32_t size, CUVIDPICPARAMS *picParams) {
     //TODO a bit of a hack as we don't have per decoder init/deinit functions atm
     if (parser == NULL) {
@@ -109,7 +117,7 @@ static void parseExtraInfo(void *buf, uint32_t size, CUVIDPICPARAMS *picParams) 
         picParams->CodecSpecific.vp9.colorSpace = parser->color_space;
     }
 
-    //gst_vp9_parser_free(parser);
+    // Parser is freed in vp9_parser_cleanup() destructor
 }
 
 static void copyVP9SliceParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *picParams)
