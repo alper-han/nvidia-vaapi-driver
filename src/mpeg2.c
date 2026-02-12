@@ -71,7 +71,7 @@ static void copyMPEG2PicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *
     picParams->CodecSpecific.mpeg2.f_code[0][1] = (buf->f_code >>  8) & 0xf;
     picParams->CodecSpecific.mpeg2.f_code[1][0] = (buf->f_code >>  4) & 0xf;
     picParams->CodecSpecific.mpeg2.f_code[1][1] = buf->f_code & 0xf;
-    picParams->CodecSpecific.mpeg2.intra_dc_precision = buf->picture_coding_extension.bits.intra_dc_precision;;
+    picParams->CodecSpecific.mpeg2.intra_dc_precision = buf->picture_coding_extension.bits.intra_dc_precision;
     picParams->CodecSpecific.mpeg2.frame_pred_frame_dct = buf->picture_coding_extension.bits.frame_pred_frame_dct;
     picParams->CodecSpecific.mpeg2.concealment_motion_vectors = buf->picture_coding_extension.bits.concealment_motion_vectors;
     picParams->CodecSpecific.mpeg2.q_scale_type = buf->picture_coding_extension.bits.q_scale_type;
