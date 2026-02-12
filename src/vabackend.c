@@ -1601,9 +1601,112 @@ static VAStatus nvDeriveImage(
         VAImage *image     /* out */
     )
 {
-    //LOG("In %s", __func__);
-    //FAILED because we don't support it
-    return VA_STATUS_ERROR_OPERATION_FAILED;
+    LOG("In %s", __func__);
+    NVDriver *drv = (NVDriver*) ctx->pDriverData;
+    NVSurface *surfaceObj = (NVSurface*) getObjectPtr(drv, OBJECT_TYPE_SURFACE, surface);
+
+    if (surfaceObj == NULL) {
+        LOG("nvDeriveImage: Invalid surface %d", surface);
+        return VA_STATUS_ERROR_INVALID_SURFACE;
+    }
+
+    // Get format from surface
+    NVFormat nvFormat;
+    if (surfaceObj->backingImage != NULL) {
+        // Use format from backing image if available
+        nvFormat = surfaceObj->backingImage->format;
+    } else {
+        // Determine format from surface properties
+        if (surfaceObj->chromaFormat == cudaVideoChromaFormat_444) {
+            nvFormat = (surfaceObj->bitDepth > 8) ? NV_FORMAT_Q416 : NV_FORMAT_444P;
+        } else {
+            // 4:2:0 chroma
+            switch (surfaceObj->bitDepth) {
+                case 16:
+                    nvFormat = NV_FORMAT_P016;
+                    break;
+                case 12:
+                    nvFormat = NV_FORMAT_P012;
+                    break;
+                case 10:
+                    nvFormat = NV_FORMAT_P010;
+                    break;
+                default:
+                    nvFormat = NV_FORMAT_NV12;
+                    break;
+            }
+        }
+    }
+    if (nvFormat == NV_FORMAT_NONE) {
+        LOG("nvDeriveImage: Surface %d has no valid format", surface);
+        return VA_STATUS_ERROR_INVALID_IMAGE_FORMAT;
+    }
+
+    const NVFormatInfo *fmtInfo = &formatsInfo[nvFormat];
+    const NVFormatPlane *p = fmtInfo->plane;
+
+    // Use surface dimensions
+    uint32_t width = surfaceObj->width;
+    uint32_t height = surfaceObj->height;
+
+    Object imageObj = allocateObject(drv, OBJECT_TYPE_IMAGE, sizeof(NVImage));
+    if (imageObj == NULL) {
+        LOG("nvDeriveImage: Failed to allocate image object");
+        return VA_STATUS_ERROR_ALLOCATION_FAILED;
+    }
+    image->image_id = imageObj->id;
+
+    NVImage *img = (NVImage*) imageObj->obj;
+    img->width = width;
+    img->height = height;
+    img->format = nvFormat;
+
+    // Allocate buffer for image data
+    Object imageBufferObject = allocateObject(drv, OBJECT_TYPE_BUFFER, sizeof(NVBuffer));
+    if (imageBufferObject == NULL) {
+        LOG("nvDeriveImage: Failed to allocate buffer object");
+        deleteObject(drv, imageObj->id);
+        return VA_STATUS_ERROR_ALLOCATION_FAILED;
+    }
+
+    NVBuffer *imageBuffer = (NVBuffer*) imageBufferObject->obj;
+    imageBuffer->bufferType = VAImageBufferType;
+    imageBuffer->size = 0;
+    for (uint32_t i = 0; i < fmtInfo->numPlanes; i++) {
+        imageBuffer->size += ((width * height) >> (p[i].ss.x + p[i].ss.y)) * fmtInfo->bppc * p[i].channelCount;
+    }
+    imageBuffer->elements = 1;
+    imageBuffer->ptr = memalign(16, imageBuffer->size);
+    if (imageBuffer->ptr == NULL) {
+        LOG("nvDeriveImage: Failed to allocate image buffer memory");
+        deleteObject(drv, imageBufferObject->id);
+        deleteObject(drv, imageObj->id);
+        return VA_STATUS_ERROR_ALLOCATION_FAILED;
+    }
+
+    img->imageBuffer = imageBuffer;
+
+    // Fill VAImage structure
+    memcpy(&image->format, &fmtInfo->vaFormat, sizeof(VAImageFormat));
+    image->buf = imageBufferObject->id;
+    image->width = width;
+    image->height = height;
+    image->data_size = imageBuffer->size;
+    image->num_planes = fmtInfo->numPlanes;
+
+    // Calculate pitches and offsets
+    image->pitches[0] = width * fmtInfo->bppc;
+    image->pitches[1] = width * fmtInfo->bppc;
+    image->pitches[2] = width * fmtInfo->bppc;
+
+    image->offsets[0] = 0;
+    image->offsets[1] = image->offsets[0] + ((width * height) >> (p[0].ss.x + p[0].ss.y)) * fmtInfo->bppc * p[0].channelCount;
+    image->offsets[2] = image->offsets[1] + ((width * height) >> (p[1].ss.x + p[1].ss.y)) * fmtInfo->bppc * p[1].channelCount;
+
+    LOG("nvDeriveImage: Created image %d from surface %d, format=%d, size=%zu, planes=%u",
+        imageObj->id, surface, nvFormat, imageBuffer->size, fmtInfo->numPlanes);
+
+    return VA_STATUS_SUCCESS;
 }
 
 static VAStatus nvDestroyImage(
@@ -1997,9 +2100,20 @@ static VAStatus nvBufferInfo(
            unsigned int *num_elements /* out */
 )
 {
-    LOG("In %s", __func__);
-    *size=0;
-    *num_elements=0;
+    NVDriver *drv = (NVDriver*) ctx->pDriverData;
+    NVBuffer *buf = (NVBuffer*) getObjectPtr(drv, OBJECT_TYPE_BUFFER, buf_id);
+
+    if (buf == NULL) {
+        LOG("nvBufferInfo: Invalid buffer %d", buf_id);
+        *type = 0;
+        *size = 0;
+        *num_elements = 0;
+        return VA_STATUS_ERROR_INVALID_BUFFER;
+    }
+
+    *type = buf->bufferType;
+    *size = (unsigned int)buf->size;
+    *num_elements = buf->elements;
 
     return VA_STATUS_SUCCESS;
 }
