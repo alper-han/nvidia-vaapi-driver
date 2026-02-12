@@ -1207,15 +1207,9 @@ static VAStatus nvCreateBuffer(
         return VA_STATUS_ERROR_INVALID_CONTEXT;
     }
 
-    //HACK: This is an awful hack to support VP8 videos when running within FFMPEG.
-    //VA-API doesn't pass enough information for NVDEC to work with, but the information is there
-    //just before the start of the buffer that was passed to us.
+    // VP8: Header reconstruction is now done in vp8.c
+    // The old hack is disabled because FFmpeg's buffer allocation changed
     size_t offset = 0;
-    if (nvCtx->profile == VAProfileVP8Version0_3 && type == VASliceDataBufferType) {
-        offset = ((uintptr_t) data) & 0xf;
-        data = ((char *) data) - offset;
-        size += (unsigned int)offset;
-    }
 
     //TODO should pool these as most of the time these should be the same size
     Object bufferObject = allocateObject(drv, OBJECT_TYPE_BUFFER, sizeof(NVBuffer));
