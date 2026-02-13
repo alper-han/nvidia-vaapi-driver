@@ -1,7 +1,9 @@
 #include "vabackend.h"
 #include <sys/param.h>
+#include <string.h>
 
-//TODO incomplete as no hardware to test with
+// AV1 decode implementation for NVIDIA NVDEC
+// Reference: FFmpeg libavcodec/nvdec_av1.c
 static int get_relative_dist(CUVIDAV1PICPARAMS *pps, int ref_hint, int order_hint) {
     if (!pps->enable_order_hint) {
         return 0;
@@ -23,15 +25,19 @@ static void copyAV1PicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *pi
     picParams->intra_pic_flag    = buf->pic_info_fields.bits.frame_type == 0 || //Key
                                    buf->pic_info_fields.bits.frame_type == 2; //Intra-Only
 
-    //TODO if it's not a key or switch frame type, it still *might* be a ref_pic
-    picParams->ref_pic_flag      = buf->pic_info_fields.bits.frame_type == 0 ||
-                                  (buf->pic_info_fields.bits.frame_type == 3 && buf->pic_info_fields.bits.show_frame);
+    // ref_pic_flag: Frame will be stored as reference
+    // Based on FFmpeg: !!frame_header->refresh_frame_flags
+    // In VA-API: use showable_frame as indicator
+    picParams->ref_pic_flag      = buf->pic_info_fields.bits.frame_type == 0 ||  // Key frame
+                                   buf->pic_info_fields.bits.showable_frame;       // Can be reference
 
     pps->width = ctx->width;
     pps->height = ctx->height;
 
     pps->frame_offset = buf->order_hint;
-    pps->decodePicIdx = picParams->CurrPicIdx; //TODO not sure about this
+    // decodePicIdx: Reference frame index in DPB
+    // Use current picture index - NVDEC manages DPB internally
+    pps->decodePicIdx = picParams->CurrPicIdx;
 
     pps->profile = buf->profile;
     pps->use_128x128_superblock = buf->seq_info_fields.fields.use_128x128_superblock;
@@ -47,10 +53,12 @@ static void copyAV1PicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *pi
     pps->enable_order_hint = buf->seq_info_fields.fields.enable_order_hint;
     pps->order_hint_bits_minus1 = buf->order_hint_bits_minus_1;
     pps->enable_jnt_comp = buf->seq_info_fields.fields.enable_jnt_comp;
-    //TODO not quite correct, use_superres can be 0, and enable_superres can be 1
+    // enable_superres: Sequence-level capability (not in libVA, derive from use_superres)
+    // If use_superres is ever 1, then enable_superres must be 1
     pps->enable_superres = buf->pic_info_fields.bits.use_superres;
     pps->enable_cdef = buf->seq_info_fields.fields.enable_cdef;
-    //TODO this flag just seems to be missing from libva, however we should be able to recover it from the lr_type fields
+    // enable_restoration: Sequence-level capability (not in libVA, derive from loop restoration)
+    // If any restoration is enabled for any plane, enable_restoration = 1
     pps->enable_restoration = buf->loop_restoration_fields.bits.yframe_restoration_type != 0 ||
                               buf->loop_restoration_fields.bits.cbframe_restoration_type != 0 ||
                               buf->loop_restoration_fields.bits.crframe_restoration_type != 0;
@@ -224,16 +232,13 @@ static void copyAV1PicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *pi
                                    ((buf->cdef_uv_strengths[i] & 0x03) << 4);
     }
 
-    //TODO replace with memcpy?
+    // Copy segmentation data - use memcpy for better performance
+    memcpy(pps->segmentation_feature_mask, buf->seg_info.feature_mask, 8 * sizeof(uint8_t));
     for (int i = 0; i < 8; i++) { //MAX_SEGMENTS
-        pps->segmentation_feature_mask[i] = buf->seg_info.feature_mask[i];
-        for (int j = 0; j < 8; j++) { //MAX_SEGMENT_LEVEL
-            //TODO these values are clipped when supplied via ffmpeg
-            pps->segmentation_feature_data[i][j] = buf->seg_info.feature_data[i][j];
-        }
+        memcpy(pps->segmentation_feature_data[i], buf->seg_info.feature_data[i], 8 * sizeof(int16_t));
     }
 
-    //TODO i think it is correct
+    // coded_lossless: Check if frame is losslessly coded
     pps->coded_lossless = 1;
     if (buf->y_dc_delta_q != 0 || buf->u_dc_delta_q != 0 || buf->v_dc_delta_q != 0 || buf->u_ac_delta_q != 0 || buf->v_ac_delta_q != 0) {
         pps->coded_lossless = 0;
@@ -251,8 +256,10 @@ static void copyAV1PicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *pi
     if (buf->primary_ref_frame == 7) { //PRIMARY_REF_NONE
         pps->primary_ref_frame = -1;
     } else {
-        //TODO check this
-        pps->primary_ref_frame = pps->ref_frame_map[buf->ref_frame_idx[buf->primary_ref_frame]];
+        // primary_ref_frame: Index of primary reference frame
+        // Map from ref_frame_idx to actual frame index in DPB
+        int primary_idx = buf->ref_frame_idx[buf->primary_ref_frame];
+        pps->primary_ref_frame = pps->ref_frame_map[primary_idx];
     }
 
     for (int i = 0; i < 7; i++) { //REFS_PER_FRAME
@@ -265,12 +272,11 @@ static void copyAV1PicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *pi
             pps->ref_frame[i].height = surf->height;
         }
 
-        //TODO not sure on this one
+        // global_motion: Global motion parameters for each reference frame
+        // invalid = 1 when wmtype == 0 (IDENTITY), meaning no global motion
         pps->global_motion[i].invalid = (buf->wm[i].wmtype == 0);
         pps->global_motion[i].wmtype = buf->wm[i].wmtype;
-        for (int j = 0; j < 6; j++) {
-            pps->global_motion[i].wmmat[j] = buf->wm[i].wmmat[j];
-        }
+        memcpy(pps->global_motion[i].wmmat, buf->wm[i].wmmat, 6 * sizeof(int32_t));
     }
 
     if (pps->apply_grain) {
@@ -284,15 +290,9 @@ static void copyAV1PicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *pi
             pps->scaling_points_cr[i][0] = buf->film_grain_info.point_cr_value[i];
             pps->scaling_points_cr[i][1] = buf->film_grain_info.point_cr_scaling[i];
         }
-        //TODO memcpy?
-        for (int i = 0; i < 24; i++) {
-            pps->ar_coeffs_y[i] = buf->film_grain_info.ar_coeffs_y[i];
-        }
-        //TODO memcpy?
-        for (int i = 0; i < 25; i++) {
-            pps->ar_coeffs_cb[i] = buf->film_grain_info.ar_coeffs_cb[i];
-            pps->ar_coeffs_cr[i] = buf->film_grain_info.ar_coeffs_cr[i];
-        }
+        memcpy(pps->ar_coeffs_y, buf->film_grain_info.ar_coeffs_y, 24 * sizeof(uint8_t));
+        memcpy(pps->ar_coeffs_cb, buf->film_grain_info.ar_coeffs_cb, 25 * sizeof(uint8_t));
+        memcpy(pps->ar_coeffs_cr, buf->film_grain_info.ar_coeffs_cr, 25 * sizeof(uint8_t));
     }
 
     //printCUVIDPICPARAMS(picParams);

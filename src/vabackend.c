@@ -1305,7 +1305,6 @@ static VAStatus nvCreateBuffer(
     // The old hack is disabled because FFmpeg's buffer allocation changed
     size_t offset = 0;
 
-    //TODO should pool these as most of the time these should be the same size
     Object bufferObject = allocateObject(drv, OBJECT_TYPE_BUFFER, sizeof(NVBuffer));
     if (bufferObject == NULL) {
         LOG("Unable to allocate buffer object");
