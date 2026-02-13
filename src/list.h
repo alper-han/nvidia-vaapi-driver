@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#define INITIAL_ARRAY_CAPACITY 16
+
 typedef struct {
     void **buf;
     uint32_t size;

@@ -13,7 +13,7 @@ static void ensure_capacity(Array *arr, uint32_t new_capacity) {
     uint32_t old_capacity = arr->capacity;
     if (arr->capacity == 0) {
         //if we're completely empty allocate a small amount
-        arr->capacity = 16;
+        arr->capacity = INITIAL_ARRAY_CAPACITY;
     } else {
         //grow the capacity until we can hold the new amount
         while (new_capacity > arr->capacity) {
@@ -21,7 +21,13 @@ static void ensure_capacity(Array *arr, uint32_t new_capacity) {
         }
     }
 
-    arr->buf = realloc(arr->buf, arr->capacity * sizeof(void*));
+    void *new_buf = realloc(arr->buf, arr->capacity * sizeof(void*));
+    if (new_buf == NULL) {
+        // realloc failed, keep old buffer and capacity
+        arr->capacity = old_capacity;
+        return;
+    }
+    arr->buf = new_buf;
 
     //clear the new part of the array
     memset(&arr->buf[old_capacity], 0, (size_t)(arr->capacity - old_capacity) * sizeof(void*));

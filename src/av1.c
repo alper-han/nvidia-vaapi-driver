@@ -17,8 +17,8 @@ static void copyAV1PicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *pi
     VADecPictureParameterBufferAV1* buf = (VADecPictureParameterBufferAV1*) buffer->ptr;
     CUVIDAV1PICPARAMS *pps = &picParams->CodecSpecific.av1;
 
-    picParams->PicWidthInMbs = (ctx->width + 15)/16;
-    picParams->FrameHeightInMbs = (ctx->height + 15)/16;
+    picParams->PicWidthInMbs    = (ctx->width + MACROBLOCK_MASK) / MACROBLOCK_SIZE;
+    picParams->FrameHeightInMbs = (ctx->height + MACROBLOCK_MASK) / MACROBLOCK_SIZE;
 
     picParams->intra_pic_flag    = buf->pic_info_fields.bits.frame_type == 0 || //Key
                                    buf->pic_info_fields.bits.frame_type == 2; //Intra-Only

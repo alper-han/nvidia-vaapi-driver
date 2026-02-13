@@ -78,8 +78,8 @@ static void copyHEVCPicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *p
 {
     VAPictureParameterBufferHEVC* buf = (VAPictureParameterBufferHEVC*) buffer->ptr;
 
-    picParams->PicWidthInMbs    = buf->pic_width_in_luma_samples / 16;
-    picParams->FrameHeightInMbs = buf->pic_height_in_luma_samples / 16;
+    picParams->PicWidthInMbs    = buf->pic_width_in_luma_samples / MACROBLOCK_SIZE;
+    picParams->FrameHeightInMbs = buf->pic_height_in_luma_samples / MACROBLOCK_SIZE;
 
     picParams->field_pic_flag    = !!(buf->CurrPic.flags & VA_PICTURE_HEVC_FIELD_PIC);
     picParams->bottom_field_flag = !!(buf->CurrPic.flags & VA_PICTURE_HEVC_BOTTOM_FIELD);

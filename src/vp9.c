@@ -68,19 +68,25 @@ static void copyVP9PicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *pi
     }
 }
 
-static GstVp9Parser *parser;
-
-static void __attribute__((destructor)) vp9_parser_cleanup(void) {
-    if (parser != NULL) {
-        gst_vp9_parser_free(parser);
-        parser = NULL;
+// Get or create parser for this context
+static GstVp9Parser* getVp9Parser(NVContext *ctx) {
+    GstVp9Parser *parser = (GstVp9Parser*) ctx->codecData;
+    if (parser == NULL) {
+        parser = gst_vp9_parser_new();
+        if (parser != NULL) {
+            ctx->codecData = parser;
+            LOG("VP9 parser created for context %p", ctx);
+        }
     }
+    return parser;
 }
 
-static void parseExtraInfo(void *buf, uint32_t size, CUVIDPICPARAMS *picParams) {
-    //TODO a bit of a hack as we don't have per decoder init/deinit functions atm
+// Parse extra information from VP9 bitstream
+static void parseExtraInfo(NVContext *ctx, void *buf, uint32_t size, CUVIDPICPARAMS *picParams) {
+    GstVp9Parser *parser = getVp9Parser(ctx);
     if (parser == NULL) {
-        parser = gst_vp9_parser_new ();
+        LOG("ERROR: Failed to create VP9 parser for context %p", ctx);
+        return;
     }
 
     //parse all the extra information that VA-API doesn't support, but NVDEC requires
@@ -115,9 +121,26 @@ static void parseExtraInfo(void *buf, uint32_t size, CUVIDPICPARAMS *picParams) 
         picParams->CodecSpecific.vp9.qpChAc = hdr.quant_indices.uv_ac_delta;
 
         picParams->CodecSpecific.vp9.colorSpace = parser->color_space;
+    } else {
+        LOG("VP9 parser error: %d for context %p", res, ctx);
     }
+}
 
-    // Parser is freed in vp9_parser_cleanup() destructor
+// Initialize VP9 codec context
+static void vp9Init(NVContext *ctx) {
+    LOG("VP9 init called for context %p", ctx);
+    ctx->codecData = NULL;  // Parser will be created on demand
+}
+
+// Cleanup VP9 codec context
+static void vp9Cleanup(NVContext *ctx) {
+    LOG("VP9 cleanup called for context %p", ctx);
+    GstVp9Parser *parser = (GstVp9Parser*) ctx->codecData;
+    if (parser != NULL) {
+        gst_vp9_parser_free(parser);
+        ctx->codecData = NULL;
+        LOG("VP9 parser freed for context %p", ctx);
+    }
 }
 
 static void copyVP9SliceParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *picParams)
@@ -139,8 +162,8 @@ static void copyVP9SliceData(NVContext *ctx, NVBuffer* buf, CUVIDPICPARAMS *picP
         appendBuffer(&ctx->sliceOffsets, &offset, sizeof(offset));
         appendBuffer(&ctx->bitstreamBuffer, PTROFF(buf->ptr, sliceParams->slice_data_offset), sliceParams->slice_data_size);
 
-        //TODO this might not be the best place to call as we may not have a complete packet yet...
-        parseExtraInfo(PTROFF(buf->ptr, sliceParams->slice_data_offset), sliceParams->slice_data_size, picParams);
+        // Parse extra information from the slice data
+        parseExtraInfo(ctx, PTROFF(buf->ptr, sliceParams->slice_data_offset), sliceParams->slice_data_size, picParams);
         picParams->nBitstreamDataLen += sliceParams->slice_data_size;
     }
 }
@@ -173,4 +196,6 @@ const DECLARE_CODEC(vp9Codec) = {
     },
     .supportedProfileCount = ARRAY_SIZE(vp9SupportedProfiles),
     .supportedProfiles = vp9SupportedProfiles,
+    .init = vp9Init,
+    .cleanup = vp9Cleanup,
 };

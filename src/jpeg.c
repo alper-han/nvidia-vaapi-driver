@@ -7,8 +7,8 @@ static void copyJPEGPicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *p
 {
     VAPictureParameterBufferJPEGBaseline* buf = (VAPictureParameterBufferJPEGBaseline*) buffer->ptr;
 
-    picParams->PicWidthInMbs = (int) ( buf->picture_width + 15) / 16; //int
-    picParams->FrameHeightInMbs = (int) ( buf->picture_height + 15) / 16; //int
+    picParams->PicWidthInMbs = (int) (buf->picture_width + MACROBLOCK_MASK) / MACROBLOCK_SIZE;
+    picParams->FrameHeightInMbs = (int) (buf->picture_height + MACROBLOCK_MASK) / MACROBLOCK_SIZE;
 
     picParams->field_pic_flag    = 0;
     picParams->bottom_field_flag = 0;

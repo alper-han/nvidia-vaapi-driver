@@ -17,6 +17,13 @@
 #define MAX_IMAGE_COUNT 64
 #define MAX_PROFILES 32
 
+/* Common constants */
+#define MACROBLOCK_SIZE 16
+#define MACROBLOCK_MASK (MACROBLOCK_SIZE - 1)  /* 15 for alignment calculations */
+#define MAX_MACROBLOCK_ARRAY_SIZE 16           /* Max size for macroblock arrays - H264 DPB size */
+#define LOG_BUFFER_SIZE 1024                   /* Logger message buffer size */
+#define INITIAL_ARRAY_CAPACITY 16              /* Initial capacity for dynamic arrays */
+
 typedef struct {
     void        *buf;
     uint64_t    size;
@@ -184,6 +191,7 @@ typedef struct _NVContext
     pthread_mutex_t     surfaceCreationMutex;
     int                 surfaceCount;
     bool                firstKeyframeValid;
+    void                *codecData;  // Codec-specific data (e.g., VP9 parser)
 } NVContext;
 
 typedef struct
@@ -198,6 +206,8 @@ typedef struct
 
 typedef void (*HandlerFunc)(NVContext*, NVBuffer* , CUVIDPICPARAMS*);
 typedef cudaVideoCodec (*ComputeCudaCodec)(VAProfile);
+typedef void (*CodecInitFunc)(NVContext*);
+typedef void (*CodecCleanupFunc)(NVContext*);
 
 //padding/alignment is very important to this structure as it's placed in it's own section
 //in the executable.
@@ -206,6 +216,8 @@ struct _NVCodec {
     HandlerFunc         handlers[VABufferTypeMax];
     int                 supportedProfileCount;
     const VAProfile     *supportedProfiles;
+    CodecInitFunc       init;       // Called when context is created
+    CodecCleanupFunc    cleanup;    // Called when context is destroyed
 };
 
 typedef struct _NVCodec NVCodec;

@@ -49,7 +49,7 @@ static void copyH264PicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *p
     picParams->CodecSpecific.h264.CurrFieldOrderCnt[0] = buf->CurrPic.TopFieldOrderCnt;
     picParams->CodecSpecific.h264.CurrFieldOrderCnt[1] = buf->CurrPic.BottomFieldOrderCnt;
 
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < MAX_MACROBLOCK_ARRAY_SIZE; i++) {
         if (!(buf->ReferenceFrames[i].flags & VA_PICTURE_H264_INVALID)) {
             picParams->CodecSpecific.h264.dpb[i].PicIdx = pictureIdxFromSurfaceId(ctx->drv, buf->ReferenceFrames[i].picture_id);
             picParams->CodecSpecific.h264.dpb[i].FrameIdx = buf->ReferenceFrames[i].frame_idx;
