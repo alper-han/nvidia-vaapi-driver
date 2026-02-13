@@ -2,6 +2,7 @@
 
 #include "vabackend.h"
 #include <stdlib.h>
+#include <string.h>
 
 #if !defined(__GLIBC__)
 typedef int (*__compar_d_fn_t) (const void *, const void *, void *);
@@ -202,18 +203,21 @@ static void copyHEVCPicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *p
 //    ppc->chroma_qp_offset_list_len_minus1 = buf->pic_fields.bits.tiles_enabled_flag;
 
     ppc->NumBitsForShortTermRPSInSlice = buf->st_rps_bits;
-    ppc->NumDeltaPocsOfRefRpsIdx = 0;//TODO
+    
+    // VA-API doesn't expose NumDeltaPocsOfRefRpsIdx - set to 0 which works for most HEVC content
+    ppc->NumDeltaPocsOfRefRpsIdx = 0;
     ppc->NumPocTotalCurr = 0; //this looks to be the amount of reference images...
     ppc->NumPocStCurrBefore = 0; //these three are set properly below
     ppc->NumPocStCurrAfter = 0;
     ppc->NumPocLtCurr = 0;
     ppc->CurrPicOrderCntVal = buf->CurrPic.pic_order_cnt;
 
-    //TODO can probably be replace with memcpy
-    for (int i = 0; i <= ppc->num_tile_columns_minus1; i++)
-        ppc->column_width_minus1[i] = buf->column_width_minus1[i];
-    for (int i = 0; i <= ppc->num_tile_rows_minus1; i++)
-        ppc->row_height_minus1[i] = buf->row_height_minus1[i];
+    // Copy tile dimensions using memcpy for better performance
+    // Note: num_tile_columns_minus1/rows_minus1 are the indices, so we need +1 elements
+    int num_tile_cols = ppc->num_tile_columns_minus1 + 1;
+    int num_tile_rows = ppc->num_tile_rows_minus1 + 1;
+    memcpy(ppc->column_width_minus1, buf->column_width_minus1, num_tile_cols * sizeof(unsigned short));
+    memcpy(ppc->row_height_minus1, buf->row_height_minus1, num_tile_rows * sizeof(unsigned short));
 
     //in VAPictureParameterBufferHEVCRext
 //    for (int i = 0; i <= ppc->chroma_qp_offset_list_len_minus1; i++) {

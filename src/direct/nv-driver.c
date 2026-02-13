@@ -547,8 +547,24 @@ bool alloc_memory(const NVDriverContext *context, const uint32_t size, int *fd) 
          }
      };
 
-     //TODO find the proper page size
-     imageSizeInBytes = ROUND_UP(imageSizeInBytes, 65536);
+     // Get system page size for proper memory alignment
+     // Using sysconf to detect runtime page size instead of hardcoded 64KB
+     long system_page_size = sysconf(_SC_PAGESIZE);
+     if (system_page_size <= 0) {
+         // Fallback to 4KB if sysconf fails
+         system_page_size = 4096;
+         LOG("Warning: sysconf(_SC_PAGESIZE) failed, using fallback page size %ld", system_page_size);
+     }
+     
+     // Ensure we use at least 4KB (standard page size) and round up
+     uint32_t page_size = (uint32_t)system_page_size;
+     if (page_size < 4096) page_size = 4096;
+     
+     imageSizeInBytes = ROUND_UP(imageSizeInBytes, page_size);
+     
+     LOG("alloc_image: %ux%u, GOB: %u,%u,%u, page_size: %u, imageSize: %u", 
+         width, height, log2GobsPerBlockX, log2GobsPerBlockY, log2GobsPerBlockZ, 
+         page_size, imageSizeInBytes);
 
      struct drm_nvidia_gem_import_nvkms_memory_params params = {
          .mem_size = imageSizeInBytes,

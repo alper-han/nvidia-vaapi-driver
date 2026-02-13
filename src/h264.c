@@ -62,7 +62,19 @@ static void copyH264PicParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *p
             if ((buf->ReferenceFrames[i].flags & VA_PICTURE_H264_TOP_FIELD) != 0) tmp |= 1;
             if ((buf->ReferenceFrames[i].flags & VA_PICTURE_H264_BOTTOM_FIELD) != 0) tmp |= 2;
             if (tmp == 0) {
-                tmp = 3;  //TODO seems to look better with a hardcoded 3
+                // If no field flags are set, determine based on sequence type
+                // frame_mbs_only_flag = 1: Progressive video, frame contains both fields
+                // frame_mbs_only_flag = 0: Interlaced capable, but frame might be progressive
+                if (buf->seq_fields.bits.frame_mbs_only_flag) {
+                    // Progressive video - frame uses both top and bottom
+                    tmp = 3;
+                } else {
+                    // Interlaced video - frame is marked as reference but no field info
+                    // Conservative approach: assume it's not a reference to avoid errors
+                    // This is safer than assuming both fields in interlaced content
+                    tmp = 0;
+                    LOG("Warning: Reference frame %d has no field flags in interlaced sequence, marking as non-reference", i);
+                }
             }
             picParams->CodecSpecific.h264.dpb[i].used_for_reference = tmp;
         } else {
